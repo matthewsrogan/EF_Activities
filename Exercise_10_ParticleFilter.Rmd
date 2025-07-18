@@ -396,7 +396,7 @@ bin = 86400 / timestep          ## seconds per day / timestep = number of timest
 out.daily = array(0.0, c(ceiling(nt/bin), ne, 12))  ## [day, ensemble, variables]
 for(i in 1:12){                 ## loop over each variable
   print(i)
-  out.daily[,,i] <- apply(output[,,i],2, tapply, rep(1:365,each=bin)[1:nt], mean)
+  out.daily[,,i] <- apply(output.ensemble[,,i],2, tapply, rep(1:365,each=bin)[1:nt], mean)
 }
 
 ## Basic time-series visualizations
@@ -459,7 +459,7 @@ Once you increase the length of the model run, more observations will show up.
 ```{r}
 ## Calculate model ensemble means for same periods
 window = rep(1:(length(yr)), each=48*8, length=nt)
-LAIm = t(apply(output[, , 4], 2, tapply, window,mean))
+LAIm = t(apply(output.ensemble[, , 4], 2, tapply, window,mean))
 LAIm.ci  = apply(LAIm, 2, quantile, c(0.025, 0.5, 0.975))
 
 ## plot model and observations
@@ -634,9 +634,13 @@ observations only occur every 8 days, we only repeat the analysis step every
 8 days (which for a 30 min timestep is every 48*8 timesteps).
 
 ```{r}
+hist.params = list()             ## since we resample parameters, create a record (history) of what values were used at each step
+hist.params[[1]] = params        ## initialize with original parameters
+
 X = X.orig                       ## reset state to the initial values, not the final values from the previous ensemble
 Analysis = list()
 wt = rep(1,ne)
+output = array(0.0, c(nt, ne, 12))
 
 ### resampling particle filter
 sample = 1                         ## counter
