@@ -88,6 +88,7 @@ jags.out   <- coda.samples (model = j.model,
                             variable.names = c("tau_add","tau_obs"),
                                 n.iter = 1000)
 plot(jags.out)
+dic.samples(j.model, 2000)
 ```
 
 Here we see that the model converges rapidly. Since rjags returns the samples as a CODA object, we can use any of the diagnostics in the R *coda* library to test for convergence, summarize the output, or visualize the chains.

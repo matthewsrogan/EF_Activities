@@ -168,6 +168,25 @@ lines(test$date,rrp$mean+hm$mean,lwd=3)
 lines(test$date,rrp$lower+hm$mean,lty=2); lines(test$date,rrp$upper+hm$mean,lty=2)
 ```
 
+## full auto.arima
+
+```{r}
+if(!file.exists("aa.Rdata")){
+  aa = auto.arima(xt); save(aa,file="aa.Rdata")
+} else { load("aa.Rdata") }
+aa
+```
+
+
+## auto.arima forecast
+
+```
+aap = forecast(aa,h=365,level=95)
+plot(test$date,test$tmin..deg.c.,pch=18,cex=0.5,col=2)
+lines(test$date,aap$mean,lwd=3)
+lines(test$date,aap$lower,lty=2); lines(test$date,aap$upper,lty=2)
+```
+
 ## predictive uncertainties
 
 ```{r}
