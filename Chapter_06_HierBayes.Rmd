@@ -3,7 +3,7 @@ title: "Chapter 6 - Hierarchical Bayes"
 output: html_document
 ---
 
-The objective of this activity is to explore basic hierarchical models.  We will focus on the most common class of hierarchical models, which are hierarchical linear models. These models are similar in structure to frequentist "mixed models", which are modelsthat include both hierarchical “random” effects and non-hierarchical “fixed” effects.  Everything that we apply below to linear models can also be applied to generalized linear models (e.g. logistic and poisson regression) and thus falls within the class of Bayesian hierarchical GLMs, which are analogous to frequentist GLMM (generalized linear mixed models), and for which all of our traditional non-hierarchical linear and GLM exist as a special case. Hierarchical approaches can also be applied to non-linear and process-based models to capture unexplained variability in any model parameters. In more advanced applications parameters can be described as varying according to some temporal or spatial autocorrelation, as opposed to the assumption of independence we assume in this simple case.
+The objective of this activity is to explore basic hierarchical models.  We will focus on the most common class of hierarchical models, which are hierarchical linear models. These models are similar in structure to frequentist "mixed models", which are models that include both hierarchical “random” effects and non-hierarchical “fixed” effects.  Everything that we apply below to linear models can also be applied to generalized linear models (e.g. logistic and poisson regression) and thus falls within the class of Bayesian hierarchical GLMs, which are analogous to frequentist GLMM (generalized linear mixed models), and for which all of our traditional non-hierarchical linear and GLM exist as a special case. Hierarchical approaches can also be applied to non-linear and process-based models to capture unexplained variability in any model parameters. In more advanced applications parameters can be described as varying according to some temporal or spatial autocorrelation, as opposed to the assumption of independence we assume in this simple case.
 
 # Case Study: Mosquito population size
 
@@ -13,13 +13,98 @@ For this activity we will look at data on mosquito abundance.  The data file “
 dat <- read.csv("data/Mosquito.csv",header=TRUE,as.is = TRUE)
 ```
 
+Look at the data
+```{r}
+summary(dat$density)
+sd(dat$density)
+```
+
+
 ### Task 1: 
 
 1.  Plot mosquito abundance as a function of time in a way that distinguishes the replicates and connects them through time (e.g. with lines, colors, or symbols)
 
-2.	Write and run a JAGS model to fit the overall "global" mean `mu` and standard deviation `sigma`, reporting summary statistics for both. You can use the JAGS code you developed from activity 5 for this.
+Plot data
+```{r}
+library(ggplot2)
+ggplot(data = dat,
+       aes(x = time, y = density, color = rep)) +
+  geom_line()
+```
 
-3.	Add posterior CI and PI to the plot.
+### Task 2: 
+Write and run a JAGS model to fit the overall "global" mean `mu` and standard deviation `sigma`, reporting summary statistics for both. You can use the JAGS code you developed from activity 5 for this.
+
+Specify model code.
+```{r}
+library(rjags)
+library(coda)
+constant_model <- "
+model{
+  mu ~ dnorm(10, 1/5^2) 
+  sigma ~ dgamma(0.1, 0.1)
+  tau <- 1/sigma^2
+  for(i in 1:n){
+    y[i] ~ dnorm(mu, tau)
+  }
+}"
+```
+
+Prep model.
+```{r}
+data <- list(y = dat$density, n = length(dat$density))
+inits <- list()
+inits[[1]] <- list(mu = 2, sigma = 4)
+inits[[2]] <- list(mu = 5, sigma = 0.5)
+inits[[3]] <- list(mu = 10, sigma = 1)
+
+nchain = length(inits)
+
+constant.mod <- jags.model(file = textConnection(constant_model),
+                           data = data,
+                           inits = inits,
+                           n.chains = 3)
+```
+
+Fit model.
+```{r}
+const.out <- coda.samples(model = constant.mod,
+                         variable.names = c("mu","sigma"),
+                         n.iter = 5000)
+```
+
+Diagnostics.
+```{r}
+gelman.plot(const.out)
+```
+Use burnin of 2000
+```{r}
+burnin = 2000                                   ## determine convergence
+const.post <- window(const.out, start = burnin)  ## remove burn-in
+plot(const.post)                                ## check diagnostics post burn-in
+```
+
+Summarize posterior distributions
+```{r}
+out <- as.matrix(const.post)
+summary(out)
+```
+
+### Task 3.
+Add posterior CI and PI to the plot.
+
+update plot code.
+```{r}
+ggplot(data = dat,
+       aes(x = time, y = density, color = rep)) +
+  geom_line() +
+  geom_hline(yintercept = mean(out[,1])) +
+  geom_hline(yintercept = mean(out[,1]) - 1.96 * mean(out[,2]),
+             color = "red") + 
+  geom_hline(yintercept = mean(out[,1]) + 1.96 * mean(out[,2]),
+             color = "red")
+
+```
 
 # Random time effect
 
@@ -37,10 +122,8 @@ head(dat)
 ```
 The variable `time` used in the code above is a vector of indices (length = nrow(dat)) matching a specific row of data to a specific `alpha.t`. Therefore, when building the `data` list that you pass into `jags.model` you'll want to add `time` and have that vector contain values in the range from 1 to 10 instead of 1995-2004. When working with long data, the easiest way to do this is to convert a column to a factor, then from a factor to an integrer
 ```{r}
-as.integer(as.factor(dat$time))
+dat$time <- as.integer(as.factor(dat$time))
 ```
-
-2. Update the data model to reference `Ex[t]` instead of `mu`
 
 3. Add the random year effect parameter model (within a loop over time)
 ```
@@ -56,19 +139,90 @@ for(t in 1:nt){
  + `sigma` - residual error
  + `alpha_t` - random year effect
  + `tau_t` - year-to-year precision
+2. Update the data model to reference `Ex[t]` instead of `mu`
+
+```{r}
+time_model <- "
+model{
+  mu ~ dnorm(10, 1/5^2) 
+  sigma ~ dgamma(0.1, 0.1)
+  sigma.t ~ dgamma(0.1, 0.1)
+  
+  tau <- 1/sigma^2
+  tau.t <- 1/sigma.t^2
+  
+  for(t in 1:nt){
+    alpha.t[t] ~ dnorm(0, tau.t)
+  }
+  
+  for(i in 1:n){
+    Ex[i] <- mu + alpha.t[time[i]]	## process model (varies with time, not rep)
+    y[i] ~ dnorm(Ex[i], tau)
+  }
+}"
+```
+
+Prep model.
+```{r}
+data <- list(y = dat$density, 
+             time = dat$time, 
+             n = length(dat$density),
+             nt = length(unique(dat$time)))
+
+# alpha.t inits
+
+inits <- list()
+inits[[1]] <- list(mu = 5, sigma = 10, sigma.t = 5, alpha.t = rnorm(10, 5, 3))
+inits[[2]] <- list(mu = 8, sigma = 20, sigma.t = 3, alpha.t = rnorm(10, 5, 3))
+inits[[3]] <- list(mu = 10, sigma = 5, sigma.t = 20, alpha.t = rnorm(10, 5, 3))
+
+nchain = length(inits)
+
+time.mod <- jags.model(file = textConnection(time_model),
+                           data = data,
+                           inits = inits,
+                           n.chains = 3)
+```
+
+Fit model.
+```{r}
+time.out <- coda.samples(model = time.mod,
+                         variable.names = c("mu","sigma", "sigma.t", "alpha.t"),
+                         n.iter = 10000)
+```
+
+Diagnostics.
+```{r}
+gelman.diag(time.out)
+```
+
+Designate burnin.
+```{r}
+burnin = 2500                                   ## determine convergence
+time.post <- window(time.out, start = 1000)  ## remove burn-in
+#plot(time.post)                                ## check diagnostics post burn-in
+```
+
 
 ### Task 2
 
 4.  Fit the random-time model and turn in a plot like in Task 1 with the posterior CI and PI plotted against the data.
 Hint: once you convert the JAGS coda object to a matrix, you can use `grep` to figure out which columns contain alphas: 
-```
-jags.mat <- as.matrix(jags.out)
-sel.a <- grep("alpha",colnames(jags.mat))
-plot(jags.out[,sel.a])
-summary(jags.out[,sel.a])
-alpha <- jags.mat[,sel.a]
+
+```{r}
+time.mat <- as.matrix(time.post)
+time.mat <- time.mat[c(2001:10000, 12001:20000, 22000:30000), ]
+sel.a <- grep("alpha",colnames(time.mat))
+plot(time.post[,sel.a])
+summary(time.post[,sel.a])
+alpha <- time.mat[,sel.a]
 apply(alpha,2,mean)
 ```
+
+```{r}
+summary(time.mat)
+```
+
 5.	Looking at the posterior estimates for tau and sigma, how much of the variance in the mosquito densities is explained by the year effects? 
 
 6. Describe how you would modify your code to add a random `replicate` effect.
